@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sound test</title>
+<meta name="robots" content="noindex">
+<style>
+:root{color-scheme:light dark;--bg:#f6f8fb;--ink:#14202e;--muted:#5b6b7c;--card:#fff;--line:#d9e2ec;--accent:#0A84D6}
+@media (prefers-color-scheme:dark){:root{--bg:#0f141a;--ink:#e8eef4;--muted:#9aabbc;--card:#18202a;--line:#2a3644}}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 -apple-system,system-ui,"Segoe UI",sans-serif}
+main{max-width:560px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:26px;margin:4px 0 6px}
+p{color:var(--muted);margin:0 0 14px}
+button{display:flex;align-items:center;gap:12px;width:100%;text-align:left;font:inherit;font-weight:600;font-size:17px;padding:14px 16px;margin:10px 0;border-radius:14px;border:2px solid var(--line);border-bottom-width:4px;background:var(--card);color:var(--ink);cursor:pointer}
+button b{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:var(--accent);color:#fff;font-size:15px}
+button small{display:block;font-weight:400;color:var(--muted);font-size:13.5px}
+button.ok{border-color:#2f9e5b}button.bad{border-color:#d64545}
+pre{background:var(--card);border:2px solid var(--line);border-radius:12px;padding:12px;white-space:pre-wrap;word-break:break-word;font-size:12.5px;line-height:1.5;min-height:80px}
+</style></head>
+<body><main>
+<h1>Sound test</h1>
+<p>Tap each button in order. After each one, note whether you heard something. Then send a screenshot of this page.</p>
+<button id="t1" type="button"><b>1</b><span>A plain beep<small>The simplest sound a web page can make</small></span></button>
+<button id="t2" type="button"><b>2</b><span>A beep through the apps' sound engine<small>The same path the clicks and dings use</small></span></button>
+<button id="t3" type="button"><b>3</b><span>The voice, straight away<small>Like tapping the speaker in a speech bubble</small></span></button>
+<button id="t4" type="button"><b>4</b><span>The voice, after half a second<small>Like a new card reading itself out</small></span></button>
+<pre id="log"></pre>
+</main>
+<script>
+(function(){
+  var logEl = document.getElementById('log'), t0 = Date.now();
+  function log(s){ logEl.textContent += '[' + ((Date.now() - t0) / 1000).toFixed(1) + 's] ' + s + '\n'; }
+  var AC = window.AudioContext || window.webkitAudioContext;
+  log('Browser: ' + navigator.userAgent);
+  log('Web Audio: ' + (AC ? 'yes' : 'NO') + ' · audioSession: ' + (navigator.audioSession ? navigator.audioSession.type : 'none') + ' · touch: ' + (navigator.maxTouchPoints || 0));
+  function beep(c, dest, name){
+    var o = c.createOscillator(), g = c.createGain(), t = c.currentTime + 0.05;
+    o.frequency.value = 660; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.3, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+    o.connect(g); g.connect(dest); o.start(t); o.stop(t + 0.65);
+    var before = c.currentTime;
+    setTimeout(function(){ log(name + ': state ' + c.state + ', clock moved ' + (c.currentTime - before).toFixed(2) + 's (0.00 means no sound can come out)'); }, 700);
+  }
+  var c1 = null;
+  document.getElementById('t1').onclick = function(){
+    try {
+      c1 = c1 || new AC();
+      log('1: created, state ' + c1.state);
+      var p = c1.resume(); if (p && p.then) p.then(function(){ log('1: resume ok, state ' + c1.state); }, function(e){ log('1: resume FAILED ' + e); });
+      beep(c1, c1.destination, '1');
+    } catch (e) { log('1: ERROR ' + e); }
+  };
+  var c2 = null;
+  document.getElementById('t2').onclick = function(){
+    try {
+      if (!c2) {
+        c2 = new AC();
+        try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) { log('2: audioSession error ' + e); }
+        var b = c2.createBuffer(1, 1, 22050), s = c2.createBufferSource(); s.buffer = b; s.connect(c2.destination); s.start(0);
+        var boost = c2.createGain(), lim = c2.createDynamicsCompressor(); boost.gain.value = 1.6;
+        lim.threshold.value = -8; lim.knee.value = 6; lim.ratio.value = 8; lim.attack.value = 0.002; lim.release.value = 0.15;
+        boost.connect(lim); lim.connect(c2.destination); c2.__boost = boost;
+      }
+      log('2: state ' + c2.state);
+      var p = c2.resume(); if (p && p.then) p.then(function(){ log('2: resume ok, state ' + c2.state); }, function(e){ log('2: resume FAILED ' + e); });
+      beep(c2, c2.__boost, '2');
+    } catch (e) { log('2: ERROR ' + e); }
+  };
+  var CLIP = 'audio/heart/357c49c73z.mp3';
+  function play(a, name){
+    var p;
+    try { p = a.play(); } catch (e) { log(name + ': play ERROR ' + e); return; }
+    if (p && p.then) p.then(function(){ log(name + ': playing'); }, function(e){ log(name + ': BLOCKED ' + (e && e.name) + ' ' + (e && e.message)); });
+    a.onerror = function(){ log(name + ': file error ' + (a.error && a.error.code)); };
+    setTimeout(function(){ log(name + ': after 1.5s position ' + a.currentTime.toFixed(2) + 's, paused ' + a.paused + ', volume ' + a.volume + ', muted ' + a.muted); }, 1500);
+  }
+  document.getElementById('t3').onclick = function(){ var a = new Audio(CLIP); play(a, '3'); setTimeout(function(){ a.pause(); }, 4000); };
+  var shared = null;
+  document.getElementById('t4').onclick = function(){
+    shared = shared || new Audio();
+    shared.src = 'data:audio/wav;base64,UklGRrQBAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YZABAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA';
+    var p = shared.play(); if (p && p.catch) p.catch(function(e){ log('4: silent unlock blocked ' + (e && e.name)); });
+    setTimeout(function(){ shared.src = CLIP; play(shared, '4'); setTimeout(function(){ shared.pause(); }, 4000); }, 500);
+  };
+  document.addEventListener('visibilitychange', function(){ log('page ' + (document.hidden ? 'hidden' : 'visible')); });
+})();
+</script>
+</body></html>
